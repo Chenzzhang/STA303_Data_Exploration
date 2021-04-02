@@ -1,21 +1,17 @@
 ---
+header-includes:
+- \usepackage{lastpage}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhead[CO, CE]{Chen Zhang, 1004784646}
+- \fancyfoot[CO, CE]{\thepage \ of \pageref{LastPage}}
 output:
-  pdf_document: default
+  pdf_document:
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
 urlcolor: blue
-header-includes:    
-  - \usepackage{lastpage}
-  - \usepackage{fancyhdr}
-  - \pagestyle{fancy}
-  - \fancyhead[CO, CE]{Chen Zhang, 1004784646}
-  - \fancyfoot[CO, CE]{\thepage \ of \pageref{LastPage}}
 ---
-
-### Delete this section once you've followed these instructions
-
-1. Change 'Your name, your ID' in line 9 above to be your name and ID. No quotes needed.
-2. Run the `setup` and `getdata` chunks below. (You can click the green play button at the top right of these chunks.)
-3. Click Knit to test that you can run correctly knit this file.
-4. Delete this section, up to the first code chunk. I.e. delete the header, "Delete this section once you've followed these instructions", and points 1 through 4. *Don't* delete the `setup` code chunk.
 
 ```{r setup, message = FALSE, echo=FALSE}
 # Students: You probably shouldn't change any of the code in this chunk.
@@ -43,7 +39,7 @@ library(opendatatoronto)
 library(ggthemes)
 
 # Set so that long lines in R will be wrapped:
-knitr::opts_chunk$set(tidy.opts=list(width.cutoff=80), echo = FALSE)
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=80), echo = TRUE)
 ```
 
 
@@ -100,11 +96,15 @@ saveRDS(nbhood_profile, "data/neighbourhood_profile.Rds")
 
 daily_data <- "data/CityofToronto_COVID-19_Daily_Public_Reporting.xlsx"
 
-# Cases reported by date
+# Cases reported by date (double check the sheet is correct)
+# Should be a sheet names something like  
+## 'Cases by Reported Date'
 reported_raw <- read_excel(daily_data, sheet = 5) %>% 
   clean_names()
 
-# Cases by outbreak type
+# Cases by outbreak type (double check the sheet is correct)
+# Should be a sheet names something like  
+## 'Cases by Outbreak Type and Epis'
 outbreak_raw <- read_excel(daily_data, sheet = 3) %>% 
   clean_names()
 
@@ -147,14 +147,36 @@ Neighbourhood: `r date_nbhood[1,1]`.
 ## Data wrangling
 
 ```{r cases_dw}
-
+reported <- reported_raw %>%
+  mutate_if(is.numeric, 
+  replace_na, replace = 0) %>%
+  mutate(reported_date = date(reported_date)) %>%
+  pivot_longer(-c(reported_date), names_to = 'type', values_to = 'count') %>%
+  mutate(type = str_to_sentence(type)) %>%
+  mutate(type = fct_relevel(type, 'Active', 'Recovered', after=0))
 ```
 
 \newpage
 ## Data visualization
 
 ```{r cases_vis}
-
+reported %>% 
+  ggplot()+
+  geom_bar(aes(x = reported_date, y = count, fill = type), stat = "identity")+
+  labs(title = 'Cases reported by day in Toronto, Canada',
+       subtitle = 'Confirmed and probable cases',
+       x = 'Date',
+       y = 'Case count',
+       caption = str_c('Created by: Chen Zhang for STA303/1002, U of T\n', 
+                       'Source: Ontario Ministry of Health,',
+                       ' Integrated Public Health Information System and CORES\n', 
+                       date_daily[1,1]))+
+  theme_minimal() +
+  theme(legend.title = element_blank(), legend.position = c(0.15, 0.8))+
+  scale_y_continuous(limits = c(0, 2000)) +
+  scale_x_date(labels = scales::date_format("%d %b %y"), limits = c(date('2020-01-01'),   
+  Sys.Date())) +
+  scale_fill_manual(values = c("#003F5C",  "#86BCB6",  "#B9CA5D"))
 ```
 
 \newpage
@@ -163,14 +185,43 @@ Neighbourhood: `r date_nbhood[1,1]`.
 
 
 ```{r outbreak_dw}
-
+outbreak <- outbreak_raw %>%
+  mutate_if(is.numeric, 
+            replace_na, replace = 0) %>%
+  mutate(episode_week = date(episode_week)) %>%
+  mutate(outbreak_or_sporadic = case_when(
+    str_detect(outbreak_or_sporadic, 'OB Associated') ~ 'Outbreak associated',
+    outbreak_or_sporadic == 'Sporadic' ~ 'Sporadic'
+  )) %>%
+  mutate(outbreak_or_sporadic = fct_relevel(outbreak_or_sporadic, 
+                                             'Sporadic', 
+                                             'Outbreak associated')) %>%
+  group_by(episode_week) %>%
+  mutate(total_cases = sum(cases))
 ```
 
 \newpage
 ## Data visualization
 
 ```{r outbreak_vis}
-
+outbreak %>% 
+  ggplot()+
+  geom_bar(aes(x = episode_week, y = cases, fill = outbreak_or_sporadic), 
+           stat= "identity")+
+  labs(title = 'Cases by outbreak type and week in Toronto, Canada',
+       subtitle = 'Confirmed and probable cases',
+       x = 'Date',
+       y = 'Case count',
+       caption = str_c('Created by: Chen Zhang for STA303/1002, U of T\n', 
+                       'Source: Ontario Ministry of Health,',
+                       ' Integrated Public Health Information System and CORES\n', 
+                       date_daily[1,1]))+
+  scale_x_date(labels = scales::date_format("%d %b %y"), limits = c(date('2020-01-01'),   
+  Sys.Date()+7))+
+  scale_y_continuous(limits = c(0, max(outbreak$total_cases)))+
+  theme_minimal() +
+  theme(legend.title = element_blank(), legend.position = c(0.15, 0.8))+
+  scale_fill_manual(values = c('#86BCB6', '#B9CA5D'))
 ```
 
 \newpage
@@ -178,42 +229,110 @@ Neighbourhood: `r date_nbhood[1,1]`.
 ## Data wrangling: part 1
 
 ```{r nbhood_dw_1}
-
+income <- nbhood_profile %>%
+  filter(Topic == 'Low income in 2015', Characteristic == '  18 to 64 years (%)') %>%
+  filter(`_id` == 1143) %>%
+  pivot_longer(-c(`_id`, Topic, `Data Source`, Characteristic, Category), 
+                names_to = 'neighbourhood_name', 
+                values_to = 'Low_Income_Count') %>%
+  select(-1:-5) %>%
+  mutate(Low_Income_Count = parse_number(Low_Income_Count))
 ```
 
 ## Data wrangling: part 2
 
 ```{r nbhood_dw_2}
-
+nbhoods_all <- nbhoods_shape_raw %>%
+  mutate(neighbourhood_name = str_remove(AREA_NAME,"\\s\\(\\d+\\)$")) %>%
+  mutate(neighbourhood_name = str_replace(neighbourhood_name, "St.James Town", 
+                                          "St. James Town"))%>%
+  mutate(neighbourhood_name= str_replace(neighbourhood_name, 
+                                         "Weston-Pellam Park", 
+                                         "Weston-Pelham Park")) %>%
+  left_join(income, by = 'neighbourhood_name') %>%
+  left_join(nbhood_raw, by= 'neighbourhood_name') %>%
+  mutate(rate_per_100000 = rate_per_100_000_people) %>%
+  select(-23)
 ```
 
 ## Data wrangling: part 3
 
 ```{r nbhood_dw_3}
-
+nbhood_final <- nbhoods_all %>%
+  mutate(med_inc = median(Low_Income_Count), med_rate = median(rate_per_100000)) %>%
+  group_by(AREA_NAME) %>%
+  mutate(nbhood_type = case_when(
+        (Low_Income_Count >= med_inc& rate_per_100000 >= med_rate) ~ 
+          'Higher low income rate, higher case rate', 
+        (Low_Income_Count >= med_inc& rate_per_100000 < med_rate) ~ 
+          'Higher low income rate, lower case rate',
+        (Low_Income_Count < med_inc& rate_per_100000 >= med_rate) ~ 
+          'Lower low income rate, higher case rate',
+        (Low_Income_Count < med_inc& rate_per_100000 < med_rate) ~ 
+          'Lower low income rate, lower case rate'))
 ```
 
 \newpage
 ## Data visualization
 
 ```{r neighbourhood_graphs_1, fig.height=4}
-
+nbhood_final %>%
+  ggplot() +
+  geom_sf(aes(fill =  Low_Income_Count)) +
+  scale_fill_gradient(name = '% low income', 
+                      low = 'darkgreen', 
+                      high = 'lightgrey') +
+  labs(title = 'Percentage of 18 to 64 years olds living in a low income family (2015)',
+       subtitle = 'Neighbourhoods of Toronto, Canada',
+       caption = str_c('Created by: Chen Zhang for STA303/1002, U of T\n', 
+                       'Source: Census Profile 98-316-X2016001 via OpenData Toronto\n', 
+                       date_daily[1,1]))+
+  theme_map() +
+  theme(legend.position = 'right') 
+  
 ```
 
 \newpage
 
 ```{r neighbourhood_graphs_2, fig.height=4}
-
+nbhood_final %>%
+  ggplot() +
+  geom_sf(aes(fill =  rate_per_100000)) +
+  scale_fill_gradient(name = 'Cases per 100,000 people', 
+                      low = 'white', 
+                      high = 'darkorange') +
+  labs(title = 'COVID-19 cases per 100,000, by neighbourhood in Toronto, Canada',
+       caption = str_c('Created by: Chen Zhang for STA303/1002, U of T\n', 
+                       'Source: Ontario Ministry of Health,',
+                       ' Integrated Public Health Information System and CORES\n', 
+                       date_daily[1,1])) +
+  theme_map() +
+  theme(legend.position = 'right')
 ```
 
 \newpage
 
 ```{r neighbourhood_graphs_3, fig.height=4}
-
+nbhood_final %>%
+  ggplot() +
+  geom_sf(aes(fill =  nbhood_type))  +
+  scale_fill_brewer(palette = 'Set1', name = str_c('% of 18 to 64 year-olds in\n',
+                                                   'low income families and\n',
+                                                   'COVID-19 case rates')) +
+  labs(title = 'COVID-19 cases per 100,000, by neighbourhood in Toronto, Canada',
+       caption = str_c('Created by: Chen Zhang for STA303/1002, U of T\n', 
+                       'Income data source: Census Profile,',
+                       ' 98-316-X2016001 via OpenData Toronto\n', 
+                       'COVID data source: Ontario Ministry of Health,',
+                       ' Integrated Public\n',
+                       'Health Information System and CORES\n', 
+                       date_daily[1,1]))+
+  theme_map() +
+  theme(legend.position = 'right')
 ```
 
 
-
+\newpage
 
 ```{r, eval = FALSE}
 # This chunk of code helps you prepare your assessment for submission on Crowdmark
