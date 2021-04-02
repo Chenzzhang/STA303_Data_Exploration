@@ -13,4 +13,4 @@
 * Classify each neighbourhoods in Toronto by the low_income rate and COVID_19 rate
 * Visualize the low_income rate, COVID_19 rate and the classification of each neighbourhoods in three maps respectively
 
-For more detail, please see the instruction file
+For more details, please refer to the Instruction file
